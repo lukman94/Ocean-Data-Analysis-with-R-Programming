@@ -1,0 +1,227 @@
+---
+title: Ocean Data Analysis with R Programming for Early Career Ocean Professionals
+  (ECOPs) (Asia)
+author: "Mohamad Lukman Aidid bin Mohd Yusoff"
+date: "2023-11-05"
+output: pdf_document
+---
+
+*Individual Project Report*
+
+The project will comprise a summary report showing the research question/s, variables analyzed and the results. 
+The report will be 500 words max but the pages will depend on the number of figures generated. Submitted in word or pdf format.
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(stats)
+library(car)
+library(MASS)
+library(FactoMineR)
+library(factoextra)
+library(fuzzyjoin)
+```
+
+For this project, I will be using ship registry data from IRCLASS (Indian Registry of Shipping). In the dataset, you will find data of ships (static info, dimensions, etc.) that have been built and registered under the IRCLASS.
+
+```{r}
+irclass <- read.csv(file = "output_irclass.csv")
+str(irclass)
+```
+For our purposes, I will focus only selected columns comprising vessel dimensions only to set our scope.
+```{r}
+colnames(irclass)
+```
+
+```{r}
+data <- irclass %>% dplyr::select(vesselId, imoNumber, callsign, vesselName, shipType, lengthOverall, bm, draught, freeBoard, grossTon69, netTon69, speed, homePort, flagName) %>% drop_na()
+str(data)
+```
+Exploratory Data Analysis
+
+```{r}
+head(data)
+```
+
+
+```{r}
+summary(data)
+```
+
+```{r}
+ggpairs(select_if(data, is.numeric) %>% dplyr::select(-c(vesselId)))
+```
+
+```{r}
+hist(data$lengthOverall)
+```
+
+```{r}
+hist(data$bm)
+```
+
+```{r}
+hist(data$draught, breaks=50)
+```
+```{r}
+hist(data$freeBoard)
+```
+
+```{r}
+ggplot(data, aes(shipType)) +
+  geom_bar(fill = "#0073C2FF") +
+  theme_classic()
+```
+
+```{r}
+unique(data$shipType)
+```
+
+
+```{r}
+CatDF <- data.frame(SearchTerm =  c("CARGO", "TANKER", NA),
+                    NewCategory = c("CARGO", "TANKER", "OTHERS"))
+data <- regex_left_join(data, CatDF, by = c(shipType  = "SearchTerm"), ignore_case=TRUE) %>% mutate_at(c('SearchTerm','NewCategory'), ~replace_na(.,"OTHERS"))
+```
+
+```{r}
+head(data)
+```
+```{r}
+ggplot(data, aes(SearchTerm)) +
+  geom_bar(fill = "#0073C2FF") +
+  theme_classic()
+```
+
+\newpage
+Now, we will focus on lengthOverall, as this data generally determines our understanding for the size of a ship.
+
+```{r}
+qqnorm(data$lengthOverall)
+qqline(data$lengthOverall)
+```
+
+
+```{r}
+shapiro.test(data$lengthOverall)
+```
+
+```{r}
+leveneTest(lengthOverall ~ flagName, data)
+```
+
+Let's try transforming the data
+
+```{r}
+hist(log(data$lengthOverall), 100)
+```
+
+
+```{r}
+qqnorm(log(data$lengthOverall))
+qqline(log(data$lengthOverall))
+```
+```{r}
+shapiro.test(log(data$lengthOverall))
+```
+
+```{r}
+leveneTest(lengthOverall~flagName, data)
+```
+
+Looks like even though the transformed data look much better, it is still not enough to satisfy normality and homoscedasticity.
+
+\newpage
+
+```{r}
+unique(data$flagName)
+```
+
+The data for 'lengthOverall' is not normal and could not be transformed into a normal distribution via log transform, as both data did not pass the Shapiro-Wilk test . 
+
+Comparing variances of 'lengthOverall' and 'flagName' via the Levene test also indicated that the data set is not homoscedastic. 
+
+Therefore, ANOVA would not be suitable to test this data. The most appropriate test for this type of data would be the Kruskal-Wallis test.
+
+```{r}
+kruskal.test(lengthOverall~flagName, data=data)
+```
+
+\newpage
+Modeling - we will try to model lengthOverall from the other variables
+
+```{r}
+str(data)
+```
+
+```{r}
+bm_only = glm(lengthOverall~bm, data = data, "gaussian")
+draught_only = glm(lengthOverall~draught, data = data, "gaussian")
+freeboard_only = glm(lengthOverall~freeBoard, data = data, "gaussian")
+grossTon69_only = glm(lengthOverall~grossTon69, data = data, "gaussian")
+netTon69_only = glm(lengthOverall~netTon69, data = data, "gaussian")
+all_model = glm(lengthOverall~bm+draught+freeBoard+grossTon69+netTon69, data = data, "gaussian")
+summary(all_model)
+```
+```{r}
+draught_only_2 = glm(lengthOverall~draught, data = data, Gamma(link = log))
+grossTon69_only_2 = glm(lengthOverall~grossTon69, data = data, Gamma(link = log))
+all_model_2 = glm(lengthOverall~bm+draught+freeBoard+grossTon69+netTon69, data = data, Gamma(link = log))
+summary(all_model_2)
+```
+Looks like the best predictor is draught.
+
+We can compare models with AIC.
+
+```{r}
+AIC(bm_only,draught_only,draught_only_2,freeboard_only,grossTon69_only,grossTon69_only_2,netTon69_only,all_model,all_model_2)
+```
+From AIC, looks like the all_model is best, although all of them have very high AIC score. So the modeling is probably dubious for this data set. 
+Let's check the residuals... 
+
+```{r}
+shapiro.test(residuals(all_model))
+```
+```{r}
+shapiro.test(residuals(bm_only))
+```
+```{r}
+plot(residuals(all_model)~fitted(all_model))
+abline(h=0)
+```
+
+Though the residuals are not normally distributed, they look quite random in the fitted plot. 
+
+\newpage
+
+Finally, we will do PCA.
+
+```{r}
+pca_results <- PCA(data %>% 
+                     dplyr::select(lengthOverall, 
+                     bm, 
+                     draught,
+                     netTon69, 
+                     grossTon69, 
+                     freeBoard))
+```
+
+```{r}
+fviz_eig(pca_results, addlabels = TRUE, ylim = c(0, 50))
+```
+
+Percentage of total variance explained by the first two principal components is ~64%. 
+
+```{r}
+fviz_pca_var(pca_results)
+```
+
+From the above biplot, all of the variables considered except for draught are very tightly correlated to each other and positively correlated to Dim1. These variables are not at all correlated to Dim2. 
+
+Only draught is quite positively correlated with Dim2 and it is also slightly positively correlated with Dim1.
+
+
+
+Conclusion:
+
+Standard statistical tests are inconclusive in results pertaining this dataset. However, PCA shows that some of the variables are very tightly correlated to one another. These are the traditional dimensions of a ship, namely lengthOverall (length), beam (bm; width), freeBoard (proxy for height), and weight (both gross and net tonnage).
