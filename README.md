@@ -5,3 +5,5 @@ It consists of:
   2. 1 pdf file and 1 Rmd file (R notebook) that represents the final individual project that is required to complete the course. This uses all the techniques learned from the course to analyse a vessel registry dataset.
 
 Data files for the analyses are not included in this public repo.
+
+Certification signifying the completion of this course is [here](https://github.com/lukman94/certs/blob/cbe500132e5af1ecc6392d72434c8ab82421ce74/ECOPS_2023_Certificate.pdf).
